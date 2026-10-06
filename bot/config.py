@@ -15,7 +15,8 @@ class Course:
     id: str
     title: str
     description: str
-    price_stars: int
+    price_stars: int  # ціна в Telegram Stars
+    price: int  # ціна для ручної оплати на картку (у валюті CURRENCY)
     chat_id: int  # закритий канал/група з матеріалами курсу
 
 
@@ -29,3 +30,9 @@ ADMIN_IDS = {int(x) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip()}
 CHANNEL_URL = os.getenv("CHANNEL_URL", "")
 DB_PATH = Path(os.getenv("DB_PATH", ROOT / "data" / "bot.db"))
 COURSES = load_courses()
+
+PAYMENT_METHODS = {m.strip() for m in os.getenv("PAYMENT_METHODS", "stars").split(",") if m.strip()}
+if not PAYMENT_METHODS <= {"stars", "manual"} or not PAYMENT_METHODS:
+    raise ValueError("PAYMENT_METHODS має містити stars та/або manual")
+CURRENCY = os.getenv("CURRENCY", "грн")
+PAYMENT_DETAILS = os.getenv("PAYMENT_DETAILS", "").replace("\\n", "\n")

@@ -19,6 +19,14 @@ CREATE TABLE IF NOT EXISTS purchases (
     refunded   INTEGER DEFAULT 0,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
+CREATE TABLE IF NOT EXISTS orders (  -- заявки на ручну оплату
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    INTEGER NOT NULL,
+    course_id  TEXT NOT NULL,
+    amount     INTEGER NOT NULL,
+    status     TEXT NOT NULL DEFAULT 'pending',  -- pending / approved / rejected
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
 """
 
 
@@ -83,7 +91,8 @@ async def stats() -> dict:
     async with aiosqlite.connect(DB_PATH) as db:
         users = (await (await db.execute("SELECT COUNT(*) FROM users")).fetchone())[0]
         cur = await db.execute(
-            "SELECT course_id, COUNT(*), SUM(amount) FROM purchases WHERE refunded=0 GROUP BY course_id"
+            "SELECT course_id, currency, COUNT(*), SUM(amount) FROM purchases "
+            "WHERE refunded=0 GROUP BY course_id, currency"
         )
         per_course = await cur.fetchall()
     return {"users": users, "per_course": per_course}
@@ -93,3 +102,25 @@ async def all_user_ids() -> list[int]:
     async with aiosqlite.connect(DB_PATH) as db:
         cur = await db.execute("SELECT user_id FROM users")
         return [row[0] for row in await cur.fetchall()]
+
+
+async def create_order(user_id: int, course_id: str, amount: int) -> int:
+    async with aiosqlite.connect(DB_PATH) as db:
+        cur = await db.execute(
+            "INSERT INTO orders (user_id, course_id, amount) VALUES (?, ?, ?)", (user_id, course_id, amount)
+        )
+        await db.commit()
+        return cur.lastrowid
+
+
+async def close_order(order_id: int, status: str) -> tuple[int, str, int] | None:
+    """Атомарно переводить заявку з pending у status. Повертає (user_id, course_id, amount) або None."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        cur = await db.execute(
+            "UPDATE orders SET status=? WHERE id=? AND status='pending'", (status, order_id)
+        )
+        await db.commit()
+        if cur.rowcount == 0:
+            return None
+        cur = await db.execute("SELECT user_id, course_id, amount FROM orders WHERE id=?", (order_id,))
+        return await cur.fetchone()
